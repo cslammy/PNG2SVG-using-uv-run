@@ -9,7 +9,7 @@ See "README photo to outline svg.txt" for requirements, how to install, how to r
 
 I include a snoopy png file to experiment with.  If the script works you should have a subfolder called OUTPUT with a bunch of SVG files in there--use whatever you think looks best.
 
-But in short:
+But in short:<br/><br/>
 --Uses UV run, so no complex venv python setup. <br/>
 --Requires potrace (not a Python module--the actual app) with PATH configured  <br/>
 This cmdline worked for me on W11 just now.  uv run .\photo_to_outline_svg.py test-snoopy.png <br/><br/>
