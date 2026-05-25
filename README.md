@@ -1,7 +1,7 @@
 # PNG2SVG-using-uv-run
 PURPOSE:
 
-Turns PNG files to SVGs using python, with scaling; variable algos throw back different things like line thickness..  
+Turns PNG files to SVGs using python, with scaling; different algos return several SVGs per conversion, varying things like line thickness so you can choose the best file for your needs.
 
 BASIC "HOW DO I RUN THIS?":
 
