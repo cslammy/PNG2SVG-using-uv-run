@@ -12,7 +12,7 @@ I include a snoopy png file to experiment with.  If the script works you should 
 But in short:<br/><br/>
 --Uses UV run, so no complex venv python setup. <br/>
 --Requires potrace (not a Python module--the actual app) with PATH configured  <br/>
-This cmdline worked for me on W11 just now.  uv run .\photo_to_outline_svg.py test-snoopy.png <br/><br/>
+This cmdline worked for me on W11 just now. <br/><br/> uv run .\photo_to_outline_svg.py test-snoopy.png <br/><br/>
  
 How this was made
 Vibe coded with claude 4.7 opus (who codes anymore--all hail stupid!) 
