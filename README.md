@@ -12,10 +12,9 @@ Turns PNG files to SVGs using python, with scaling; different algos return diffe
 This cmdline worked for me on W11 just now. <br/><br/> uv run .\photo_to_outline_svg.py test-snoopy.png <br/><br/>
  
 
-See "README photo to outline svg.txt" file in the repo for requirements, how to install, how to run using uv. I include a snoopy png file to experiment with.  
+See "README photo to outline svg.txt" file in the repo for requirements, how to install, how to run using uv. Repo includes a Peanuts png file to test with.  
 
-If the script works you should end up with a subfolder called OUTPUT with a bunch of SVG files in there--use whatever you think looks best.
+If the script works you should end up with a subfolder called OUTPUT containing a bunch of SVG files.
 
-
-How this was made
-Vibe coded with claude 4.7 opus (who codes anymore--all hail stupid!) 
+How this was made:
+Vibe coded with claude 4.7 opus 5-25-26
