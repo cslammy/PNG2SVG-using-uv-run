@@ -1,0 +1,197 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "opencv-python-headless",
+#     "pillow",
+#     "numpy",
+# ]
+# ///
+"""
+photo_to_outline_svg.py
+
+Turn a photo into outline drawings and vectorize them to SVG.
+
+Generates 5 outline variants using different edge-detection approaches,
+then vectorizes each with potrace to produce SVG files.
+
+Usage:
+    uv run photo_to_outline_svg.py INPUT.png [-o OUTPUT_DIR] [--scale 4]
+
+    # or make it executable and run directly:
+    chmod +x photo_to_outline_svg.py
+    ./photo_to_outline_svg.py INPUT.png
+
+Requirements:
+    - uv installed (https://docs.astral.sh/uv/)
+    - potrace installed and on PATH:
+        macOS:   brew install potrace
+        Linux:   apt-get install potrace
+        Windows: download from https://potrace.sourceforge.net/ and add to PATH
+      (Use --no-svg to skip the SVG step if you don't have potrace.)
+"""
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import cv2
+import numpy as np
+from PIL import Image
+
+
+# ---------------------------------------------------------------------------
+# Outline variants
+# ---------------------------------------------------------------------------
+
+def variant_canny(gray_blurred, low=50, high=150):
+    """V1: Classic Canny edge detection. Clean, thin outlines."""
+    edges = cv2.Canny(gray_blurred, low, high)
+    return 255 - edges  # invert: black lines on white
+
+
+def variant_canny_thick(gray_blurred, low=40, high=120, dilate_size=2):
+    """V2: Canny edges dilated for thicker, bolder lines."""
+    edges = cv2.Canny(gray_blurred, low, high)
+    kernel = np.ones((dilate_size, dilate_size), np.uint8)
+    edges_thick = cv2.dilate(edges, kernel, iterations=1)
+    return 255 - edges_thick
+
+
+def variant_adaptive(gray_blurred, block_size=11, constant=7):
+    """V3: Adaptive threshold - sketchy with lots of detail."""
+    return cv2.adaptiveThreshold(
+        gray_blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, block_size, constant
+    )
+
+
+def variant_dog(gray, sigma_small=1.0, sigma_large=3.0, threshold=6):
+    """V4: Difference-of-Gaussians - bold line-art feel."""
+    g1 = cv2.GaussianBlur(gray, (0, 0), sigma_small)
+    g2 = cv2.GaussianBlur(gray, (0, 0), sigma_large)
+    dog = g1.astype(np.int16) - g2.astype(np.int16)
+    dog = np.clip(dog, 0, 255).astype(np.uint8)
+    _, dog_bin = cv2.threshold(dog, threshold, 255, cv2.THRESH_BINARY)
+    return 255 - dog_bin
+
+
+def variant_sketch(gray, blur_size=21, threshold=230):
+    """V5: Pencil-sketch via dodge-blend, then binarized."""
+    inv = 255 - gray
+    inv_blur = cv2.GaussianBlur(inv, (blur_size, blur_size), 0)
+    sketch = cv2.divide(gray, 255 - inv_blur, scale=256)
+    _, sketch_bin = cv2.threshold(sketch, threshold, 255, cv2.THRESH_BINARY)
+    return sketch_bin
+
+
+VARIANTS = [
+    ("v1_canny",       "Canny edges (thin, clean)",      variant_canny),
+    ("v2_canny_thick", "Canny edges (thick, bold)",      variant_canny_thick),
+    ("v3_adaptive",    "Adaptive threshold (sketchy)",   variant_adaptive),
+    ("v4_dog",         "Difference-of-Gaussians (bold)", variant_dog),
+    ("v5_sketch",      "Pencil-sketch (dodge blend)",    variant_sketch),
+]
+
+
+# ---------------------------------------------------------------------------
+# SVG vectorization via potrace
+# ---------------------------------------------------------------------------
+
+def png_to_svg(png_path, svg_path, turdsize=4, alphamax=1.0, opttolerance=0.4):
+    """Vectorize a black-on-white PNG to SVG using potrace."""
+    if not shutil.which("potrace"):
+        print("  ! potrace not installed - skipping SVG.", file=sys.stderr)
+        print("    Install: brew install potrace (mac) / apt-get install potrace (linux)",
+              file=sys.stderr)
+        print("    Windows: https://potrace.sourceforge.net/", file=sys.stderr)
+        return False
+
+    # Potrace needs a PBM (or BMP). Convert PNG -> 1-bit PBM first.
+    pbm_path = png_path.with_suffix(".pbm")
+    img = Image.open(png_path).convert("L")
+    img = img.point(lambda p: 0 if p < 128 else 255, mode="1")
+    img.save(pbm_path)
+
+    cmd = [
+        "potrace", str(pbm_path),
+        "-s",                                  # SVG output
+        "-o", str(svg_path),
+        "--turdsize", str(turdsize),           # drop specks smaller than this
+        "--alphamax", str(alphamax),           # corner smoothing
+        "--opttolerance", str(opttolerance),   # curve simplification
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    pbm_path.unlink(missing_ok=True)  # clean up intermediate
+    if result.returncode != 0:
+        print(f"  ! potrace failed: {result.stderr}", file=sys.stderr)
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
+
+def process(input_path, output_dir, scale=4, make_svg=True):
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    print(f"Loading {input_path}...")
+    img_pil = Image.open(input_path).convert("RGB")
+    W, H = img_pil.size
+    print(f"  original size: {W}x{H}")
+
+    if scale != 1:
+        img_pil = img_pil.resize((W * scale, H * scale), Image.LANCZOS)
+        print(f"  upscaled to: {img_pil.size[0]}x{img_pil.size[1]}")
+
+    img = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)  # light denoise
+
+    for name, description, fn in VARIANTS:
+        print(f"\n[{name}] {description}")
+
+        # DoG and sketch variants want the unblurred gray
+        if fn is variant_dog or fn is variant_sketch:
+            result = fn(gray)
+        else:
+            result = fn(blur)
+
+        png_path = out / f"{name}.png"
+        cv2.imwrite(str(png_path), result)
+        print(f"  -> {png_path}")
+
+        if make_svg:
+            svg_path = out / f"{name}.svg"
+            if png_to_svg(png_path, svg_path):
+                print(f"  -> {svg_path}")
+
+    print(f"\nDone. Outputs in: {out}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Turn a photo into outline drawings + SVG files."
+    )
+    parser.add_argument("input", help="Input image path (PNG, JPG, etc.)")
+    parser.add_argument("-o", "--output-dir", default="./outlines",
+                        help="Output directory (default: ./outlines)")
+    parser.add_argument("--scale", type=int, default=4,
+                        help="Upscale factor before edge detection (default: 4)")
+    parser.add_argument("--no-svg", action="store_true",
+                        help="Skip SVG vectorization (PNG outlines only)")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.input):
+        print(f"Error: input file not found: {args.input}", file=sys.stderr)
+        sys.exit(1)
+
+    process(args.input, args.output_dir, scale=args.scale, make_svg=not args.no_svg)
+
+
+if __name__ == "__main__":
+    main()
